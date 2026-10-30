@@ -1,21 +1,31 @@
 <div align="center">
 
-# Research Digest
-
-**Your interests, scored by a local LLM — news, arXiv, and HN in one ranked digest.**
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/header-dark.svg">
+  <img src="docs/readme/header-light.svg" width="100%" alt="Research Digest — RSS, arXiv, HN ranked by local LLM">
+</picture>
 
 [![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org/)
 [![n8n](https://img.shields.io/badge/Orchestration-n8n-EA4B71?style=flat-square&logo=n8n&logoColor=white)](https://n8n.io/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Docker_%7C_Linux-lightgrey?style=flat-square)](install.sh)
 
-</div>
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/divider-dark.svg">
+  <img src="docs/readme/divider-light.svg" width="100%" alt="">
+</picture>
 
----
+</div>
 
 ## Why it exists
 
 Feeds multiply faster than attention. **Research Digest** pulls RSS, arXiv categories, and Hacker News, **dedupes** against what you already sent, **scores** each item with a local LLM ([Pi coding agent](https://github.com/mariozechner/pi-coding-agent)) against weighted topics, and writes **`latest.json` / `latest.txt`** — with optional webhook notification. Configuration lives in **Postgres**; schedules and manual runs flow through **n8n**.
+
+## Highlights
+
+- 🔗 **Multi-source ingest** — RSS, arXiv categories, Hacker News
+- 🤖 **LLM curation** — Pi agent scores against weighted topics
+- 🗄️ **Dedupe & audit** — `rd_seen` tracks URLs already delivered
 
 ## Features
 
@@ -119,10 +129,4 @@ Pi config: `pi/agent/` (`models.json` for Docker, `models.host.json` for host ll
 
 ---
 
-<div align="center">
-
-**MIT** — see [LICENSE](LICENSE)
-
-Built by **[Vector26](https://github.com/Vector26)** · Personalized digests, self-hosted
-
-</div>
+[Vector26](https://github.com/Vector26) · [MIT License](LICENSE)
