@@ -1,8 +1,32 @@
+<div align="center">
+
 # Research Digest
 
-Automated **news**, **arXiv**, and **Hacker News** digest pipeline: fetch RSS/arXiv feeds, dedupe against recent sends, score items with a local LLM ([Pi coding agent](https://github.com/mariozechner/pi-coding-agent)), rank by relevance to your topics, and write `latest.json` / `latest.txt` (optional HTTP notifier).
+**Your interests, scored by a local LLM — news, arXiv, and HN in one ranked digest.**
 
-Designed to run on a schedule or on demand via **n8n**, with configuration stored in Postgres.
+[![Node.js](https://img.shields.io/badge/Node.js-18+-339933?style=flat-square&logo=nodedotjs&logoColor=white)](https://nodejs.org/)
+[![n8n](https://img.shields.io/badge/Orchestration-n8n-EA4B71?style=flat-square&logo=n8n&logoColor=white)](https://n8n.io/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-Docker_%7C_Linux-lightgrey?style=flat-square)](install.sh)
+
+</div>
+
+---
+
+## Why it exists
+
+Feeds multiply faster than attention. **Research Digest** pulls RSS, arXiv categories, and Hacker News, **dedupes** against what you already sent, **scores** each item with a local LLM ([Pi coding agent](https://github.com/mariozechner/pi-coding-agent)) against weighted topics, and writes **`latest.json` / `latest.txt`** — with optional webhook notification. Configuration lives in **Postgres**; schedules and manual runs flow through **n8n**.
+
+## Features
+
+| | |
+|---|---|
+| **Multi-source ingest** | RSS, arXiv category codes, HN |
+| **LLM curation** | Pi agent + `pi/agent/curator_system.md` for score and summary |
+| **Topic weights** | Rank by relevance to your interests |
+| **Dedupe & audit** | `rd_seen` tracks URLs already delivered |
+| **n8n-native** | Cron, webhooks, and deployable workflow JSON |
+| **CLI menu** | `research-digest-cli.sh` / `rdigest` for topics, feeds, schedules, run-now |
 
 ## Architecture
 
@@ -23,79 +47,51 @@ Designed to run on a schedule or on demand via **n8n**, with configuration store
                  Record seen URLs in Postgres                              latest.json / notify webhook
 ```
 
-1. **n8n** loads `rd_config`, `rd_topics`, `rd_feeds`, and recent `rd_seen` rows, writes `.run-input.json` under the runtime directory, and executes `run_digest.sh`.
-2. **`pipeline_lib.mjs`** fetches feeds, dedupes, calls Pi with `pi/agent/curator_system.md`, ranks by score and topic weights.
-3. Results are persisted to `rd_seen` and optional notification endpoints.
+1. **n8n** loads `rd_config`, `rd_topics`, `rd_feeds`, recent `rd_seen`, writes `.run-input.json`, runs `run_digest.sh`.
+2. **`pipeline_lib.mjs`** fetches, dedupes, calls Pi, ranks by score and topic weights.
+3. Results persist to `rd_seen` and optional notifier endpoints.
 
-## Requirements
+## Quick start
 
-- Docker with an **n8n** stack and **Postgres** (workflow uses container name `n8n_postgres` by default).
-- **Node.js** 18+ inside the n8n runtime (or on the host for local runs).
-- **Pi coding agent** with a local OpenAI-compatible LLM (defaults assume `host.docker.internal:8081`).
-- Environment file for n8n API access: `N8N_API_KEY`, `POSTGRES_PASSWORD` (see `install.sh`).
-
-## Install
+**Requirements:** Docker **n8n** + **Postgres** (default container `n8n_postgres`), Node 18+ in the n8n runtime, Pi agent + local OpenAI-compatible LLM (defaults often `host.docker.internal:8081`), `N8N_API_KEY` and `POSTGRES_PASSWORD` in your n8n env.
 
 ```bash
 git clone https://github.com/Vector26/research-digest.git
 cd research-digest
 
-# Point at your n8n .env (override if needed)
 export N8N_ENV="$HOME/n8n/.env"
 export N8N_FILES_DIR="$HOME/n8n/n8n_files"   # optional
 
 ./install.sh
 ```
 
-`install.sh` applies `schema.sql`, copies pipeline files into `$N8N_FILES_DIR/research-digest`, pushes the n8n workflow from `research_digest.import.json`, and optionally adds an `rdigest` alias to your shell rc.
+`install.sh` applies `schema.sql`, copies pipeline files to `$N8N_FILES_DIR/research-digest`, pushes workflow from `research_digest.import.json`, optionally adds `rdigest` alias.
 
-Use `./install.sh --push-only` to redeploy the workflow without re-applying schema.
-
-## CLI (`research-digest-cli.sh`)
-
-Interactive menu (whiptail when available):
-
-| Action | Purpose |
-|--------|---------|
-| Topics | Add/remove weighted interest topics for scoring |
-| Feeds | Manage RSS, arXiv category codes, HN |
-| Schedules | Cron strings for news vs papers (sync via deploy) |
-| Model | Pi provider/model/thinking level |
-| Run now | POST to n8n webhook |
-| Deploy | Re-run workflow push to n8n |
-| Verify | Run `verify_scopes.sh` integration checks |
+Redeploy workflow only: `./install.sh --push-only`
 
 ```bash
 ./research-digest-cli.sh
-# or after install: rdigest
+./verify_scopes.sh news   # or papers
 ```
 
-## Database schema
+Set `N8N_BASE` (default `http://127.0.0.1:5678`) when pushing from a non-default host.
 
-Tables (see `schema.sql`):
+### Database
 
 | Table | Role |
 |-------|------|
-| `rd_config` | Key/value settings (thresholds, cron, model, notifier URL) |
+| `rd_config` | Thresholds, cron, model, notifier URL |
 | `rd_topics` | Interest topics with weights |
-| `rd_feeds` | Feed URLs or arXiv categories (`kind`: `news`, `arxiv`, `hn`) |
-| `rd_seen` | URLs already sent (dedupe + audit) |
+| `rd_feeds` | URLs or arXiv categories (`news`, `arxiv`, `hn`) |
+| `rd_seen` | Dedupe + audit |
 
-Apply manually:
+Manual apply:
 
 ```bash
 docker exec -i n8n_postgres psql -U n8n -d n8n < schema.sql
 ```
 
-## n8n integration
-
-- Import template: `research_digest.import.json` (placeholder credential id `__RD_PG_CRED_ID__`; `push_research_digest_to_n8n.sh` creates/updates Postgres credentials and activates the workflow).
-- **Triggers:** daily news cron, weekly papers cron, POST webhook `research-digest-run?mode=news|papers`, manual trigger.
-- **Runtime path:** mount n8n files so `/files/research-digest` matches your `N8N_FILES_DIR/research-digest` copy.
-
-Set `N8N_BASE` (default `http://127.0.0.1:5678`) when pushing from a non-default host.
-
-## Local / host run
+### Local / host run
 
 ```bash
 export RD_OUT_DIR=/tmp/research-digest
@@ -104,20 +100,29 @@ export RD_INPUT=/tmp/research-digest/.run-input.json
 ./run_digest.sh
 ```
 
-Pi agent config lives under `pi/agent/` (`models.json` for Docker, `models.host.json` for host-side llama on `127.0.0.1`). Copy `pi/agent/auth.json.example` to `auth.json` if your Pi setup requires it (gitignored).
+Pi config: `pi/agent/` (`models.json` for Docker, `models.host.json` for host llama on `127.0.0.1`). Copy `pi/agent/auth.json.example` → `auth.json` if required (gitignored).
 
-## Verification
+**n8n triggers:** daily news cron, weekly papers cron, POST `research-digest-run?mode=news|papers`, manual trigger. Mount n8n files so `/files/research-digest` matches your `N8N_FILES_DIR/research-digest` copy.
 
-```bash
-./verify_scopes.sh news   # or papers
-```
+> **What makes it different**
+>
+> Not another “RSS to email” script — **your topics drive ranking**, a **local model** does the reading, and **Postgres + n8n** make schedules and dedupe auditable instead of buried in cron comments.
 
-Checks schema, feed fetch, optional Pi/llama health, n8n webhook execution, and output files.
+## Status
 
-## Docs
+| Area | State |
+|------|--------|
+| Pipeline + schema | Stable for scheduled runs |
+| n8n workflow | Imported via `push_research_digest_to_n8n.sh` |
+| Pi / LLM endpoint | You configure provider and models |
+| Extra research notes | [docs/PERSONAL_FEED_RESEARCH.md](./docs/PERSONAL_FEED_RESEARCH.md) |
 
-- `docs/PERSONAL_FEED_RESEARCH.md` — longer-form notes on personalized feed research (separate from the core digest pipeline).
+---
 
-## License
+<div align="center">
 
-MIT — see [LICENSE](LICENSE).
+**MIT** — see [LICENSE](LICENSE)
+
+Built by **[Vector26](https://github.com/Vector26)** · Personalized digests, self-hosted
+
+</div>
