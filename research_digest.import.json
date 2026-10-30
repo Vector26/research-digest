@@ -1,0 +1,215 @@
+{
+  "name": "Research News Digest",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * *"
+            }
+          ]
+        }
+      },
+      "id": "rd-0001-schedule-news",
+      "name": "Schedule News Daily",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [200, 120]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "rd-0002-schedule-papers",
+      "name": "Schedule Papers Weekly",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [200, 280]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "research-digest-run",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "rd-0003-webhook",
+      "name": "Webhook Run",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [200, 440],
+      "webhookId": "research-digest-run"
+    },
+    {
+      "parameters": {},
+      "id": "rd-0004-manual",
+      "name": "Manual Run",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [200, 600]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { mode: 'news', trigger: 'schedule_news' } }];"
+      },
+      "id": "rd-0010-init-news",
+      "name": "Init News",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 120]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { mode: 'papers', trigger: 'schedule_papers' } }];"
+      },
+      "id": "rd-0011-init-papers",
+      "name": "Init Papers",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 280]
+    },
+    {
+      "parameters": {
+        "jsCode": "const q = $input.first().json.query || {};\nconst body = $input.first().json.body || {};\nlet mode = String(q.mode || body.mode || 'news').toLowerCase();\nif (mode !== 'papers') mode = 'news';\nreturn [{ json: { mode, trigger: 'webhook' } }];"
+      },
+      "id": "rd-0012-init-webhook",
+      "name": "Init Webhook",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 440]
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{ json: { mode: 'news', trigger: 'manual' } }];"
+      },
+      "id": "rd-0013-init-manual",
+      "name": "Init Manual",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [420, 600]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT json_build_object(\n  'config', COALESCE((SELECT json_object_agg(key, value) FROM rd_config), '{}'::json),\n  'topics', COALESCE((SELECT json_agg(json_build_object('topic', topic, 'weight', weight) ORDER BY weight DESC) FROM rd_topics WHERE active), '[]'::json),\n  'feeds', COALESCE((SELECT json_agg(json_build_object('url', url, 'kind', kind, 'category', category)) FROM rd_feeds WHERE active), '[]'::json),\n  'seen', COALESCE((SELECT json_agg(url) FROM rd_seen WHERE sent_at > NOW() - make_interval(days => COALESCE((SELECT NULLIF(value,'')::int FROM rd_config WHERE key='lookback_days'), 7))), '[]'::json)\n) AS payload;",
+        "options": {}
+      },
+      "id": "rd-0020-load-config",
+      "name": "Load Config",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [660, 360],
+      "credentials": {
+        "postgres": {
+          "id": "__RD_PG_CRED_ID__",
+          "name": "Research Digest Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "function detectMode() {\n  for (const n of ['Init Webhook', 'Init Papers', 'Init Manual', 'Init News']) {\n    try { if ($(n).isExecuted) return $(n).first().json.mode || 'news'; } catch (_) {}\n  }\n  return 'news';\n}\nconst fs = require('fs');\nconst row = $input.first().json;\nconst payload = row.payload || row;\nconst mode = detectMode();\nconst outDir = '/files/research-digest';\nfs.mkdirSync(outDir, { recursive: true });\nfs.writeFileSync(outDir + '/.run-input.json', JSON.stringify({ mode, payload }, null, 2));\nreturn [{ json: { mode, ready: true } }];"
+      },
+      "id": "rd-0025-prepare-run",
+      "name": "Prepare Run",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [780, 360]
+    },
+    {
+      "parameters": {
+        "command": "sh /files/research-digest/run_digest.sh",
+        "timeout": 900
+      },
+      "id": "rd-0030-run-digest",
+      "name": "Run Digest Pipeline",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [960, 360]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const item = $input.first().json;\nconst stdout = String(item.stdout || '').trim();\nlet result = {};\ntry {\n  result = JSON.parse(stdout);\n} catch (e) {\n  result = { ok: false, error: 'stdout parse: ' + e.message, raw: stdout.slice(0, 800) };\n}\nif (!result.mode) {\n  try { result.mode = $('Prepare Run').first().json.mode; } catch (_) {}\n}\nreturn [{ json: result }];"
+      },
+      "id": "rd-0035-parse-result",
+      "name": "Parse Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1140, 360]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "={{ (() => {\n  const items = $json.items || [];\n  if (!items.length) return 'SELECT 1;';\n  const esc = (s) => String(s || '').replace(/'/g, \"''\");\n  const mode = esc($json.mode || 'news');\n  const values = items.map((it) => {\n    const url = esc(it.url);\n    const title = esc(it.title);\n    const source = esc(it.source);\n    const score = Number(it.score) || 0;\n    return `('${url}', '${title}', '${source}', '${mode}', ${score}, NOW(), NOW())`;\n  }).join(',\\n');\n  return `INSERT INTO rd_seen (url, title, source, mode, score, first_seen, sent_at)\\nVALUES ${values}\\nON CONFLICT (url) DO UPDATE SET\\n  title = EXCLUDED.title,\\n  source = EXCLUDED.source,\\n  mode = EXCLUDED.mode,\\n  score = EXCLUDED.score,\\n  sent_at = NOW();`;\n})() }}",
+        "options": {}
+      },
+      "id": "rd-0040-record-seen",
+      "name": "Record Seen",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1320, 360],
+      "credentials": {
+        "postgres": {
+          "id": "__RD_PG_CRED_ID__",
+          "name": "Research Digest Postgres"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule News Daily": {
+      "main": [[{ "node": "Init News", "type": "main", "index": 0 }]]
+    },
+    "Schedule Papers Weekly": {
+      "main": [[{ "node": "Init Papers", "type": "main", "index": 0 }]]
+    },
+    "Webhook Run": {
+      "main": [[{ "node": "Init Webhook", "type": "main", "index": 0 }]]
+    },
+    "Manual Run": {
+      "main": [[{ "node": "Init Manual", "type": "main", "index": 0 }]]
+    },
+    "Init News": {
+      "main": [[{ "node": "Load Config", "type": "main", "index": 0 }]]
+    },
+    "Init Papers": {
+      "main": [[{ "node": "Load Config", "type": "main", "index": 0 }]]
+    },
+    "Init Webhook": {
+      "main": [[{ "node": "Load Config", "type": "main", "index": 0 }]]
+    },
+    "Init Manual": {
+      "main": [[{ "node": "Load Config", "type": "main", "index": 0 }]]
+    },
+    "Load Config": {
+      "main": [[{ "node": "Prepare Run", "type": "main", "index": 0 }]]
+    },
+    "Prepare Run": {
+      "main": [[{ "node": "Run Digest Pipeline", "type": "main", "index": 0 }]]
+    },
+    "Run Digest Pipeline": {
+      "main": [[{ "node": "Parse Result", "type": "main", "index": 0 }]]
+    },
+    "Parse Result": {
+      "main": [[{ "node": "Record Seen", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner",
+    "executionTimeout": 1200
+  },
+  "active": false
+}

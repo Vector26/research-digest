@@ -1,0 +1,11 @@
+.env
+.env.*
+*.log
+auth.json
+.run-input.json
+latest.json
+latest.txt
+node_modules/
+.DS_Store
+*.swp
+pi-runtime/

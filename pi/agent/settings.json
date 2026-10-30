@@ -1,0 +1,5 @@
+{
+  "defaultProvider": "llama-hauhaucs",
+  "defaultModel": "hauhaucs-qwen3.6-35b-iq3m",
+  "defaultThinkingLevel": "minimal"
+}
